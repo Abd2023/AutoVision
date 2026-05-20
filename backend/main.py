@@ -23,8 +23,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 CLASSES = ["F1", "HATCHBACK", "MICRO", "PICK_UP", "SEDAN", "STATION_WAGON", "SUV", "VAN"]
 
-# Load ONNX model
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "model", "model_int8.onnx")
+# Load ONNX model. The previous dynamic INT8 FastViT export severely degraded
+# accuracy, so the backend intentionally serves the FP32 model.
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "model", "model_fp32.onnx")
 if os.path.exists(MODEL_PATH):
     session = ort.InferenceSession(MODEL_PATH)
     input_name = session.get_inputs()[0].name
