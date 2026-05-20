@@ -1,0 +1,23 @@
+* text=auto
+
+# Source and text files
+*.css text eol=lf
+*.html text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.py text eol=lf
+*.txt text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Binary assets and model artifacts
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.pdf binary
+*.onnx binary
+*.pt binary
+*.pth binary
+*.ckpt binary

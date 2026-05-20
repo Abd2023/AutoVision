@@ -1,0 +1,64 @@
+# Python caches and virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+.venv/
+venv/
+env/
+ENV/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Frontend dependencies and generated builds
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/.vite/
+frontend/.vite-temp/
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Project datasets and generated training artifacts
+data/
+notebooks/outputs/
+*.pt
+*.pth
+*.ckpt
+
+# Keep deployable ONNX models trackable, but ignore ad-hoc exports outside backend/model
+*.onnx
+!backend/model/*.onnx
+
+# Notebook and tool caches
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editor and OS files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

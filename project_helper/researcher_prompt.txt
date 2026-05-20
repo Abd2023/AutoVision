@@ -1,0 +1,23 @@
+You are an expert AI Researcher and Data Scientist. I am developing an image classification project to classify car body types into 8 distinct classes: SUV, VAN, STATION WAGON, MICRO, AÇIK TEKERLEKLİ (F1), SEDAN, HATCHBACK, and PICK UP. We are building a modern web interface for this using Gradio (as the API/backend) and React (for the frontend). 
+
+The final project will be evaluated on a completely **unseen test dataset**, so model generalization is our top priority. We also have a strict constraint: the entire final project folder (including the saved model and web interface files) must be **under 95 MB** to be uploaded to our university's system. Additionally, the web interface prediction latency must be very low, otherwise, points will be deducted.
+
+We have identified several critical problems that we need your help with. Please provide the best, most modern, and practical solutions for the following issues:
+
+**1. Dataset Sourcing and "Domain Bias":**
+Most standard car datasets (like "Stanford Cars" or Kaggle's "Cars Body Type") do not contain the "MICRO" and "AÇIK TEKERLEKLİ (F1)" classes. We plan to scrape or download these specific missing classes from other datasets. 
+- *Question:* How do we prevent domain bias (e.g., F1 cars always having race tracks in the background, SUVs having off-road backgrounds)? What data augmentation or preprocessing techniques should we apply to ensure the model learns the *car's body type* and not the background? Can you suggest specific open-source datasets on Kaggle or HuggingFace to fill these class gaps cleanly?
+
+**2. Strict 95 MB Size Limit & Fast Inference:**
+Our final saved model (`.h5`, `.pt`, `.onnx`, etc.) combined with our code must not exceed 95 MB. Furthermore, prediction must be very fast during the live presentation on standard CPU hardware.
+- *Question:* Which modern lightweight architectures (e.g., MobileNetV3, EfficientNet-B0/B1, lightweight ViTs) do you recommend to maximize the F1-Score while keeping the model file under 30-40 MB? What model export formats or quantization techniques (like ONNX, TFLite) should we use to speed up CPU inference without losing accuracy?
+
+**3. Fine-grained Classification Confusion:**
+Classes like "Hatchback" vs. "Micro", or "Station Wagon" vs. "SUV" share high visual similarity. 
+- *Question:* What modern loss functions (e.g., Focal Loss), architectural tweaks, or training strategies do you recommend to help the model distinguish between these highly similar classes and boost our macro F1-score?
+
+**4. Gradio + React Architecture:**
+We want to use React for a beautiful frontend and Gradio for the inference API. 
+- *Question:* What is the cleanest architectural approach to connect a React frontend to a Gradio Python backend efficiently, keeping the build size minimal and the latency low? 
+
+Please provide actionable code strategies, recommended Python libraries, and step-by-step best practices.

@@ -1,0 +1,8 @@
+torch
+torchvision
+timm
+rembg
+matplotlib
+scikit-learn
+gradio
+onnx
