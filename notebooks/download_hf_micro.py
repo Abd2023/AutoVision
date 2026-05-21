@@ -1,65 +1,91 @@
-import os
+"""
+Download extra MICRO-class images from DamianBoborzi/car_images.
+
+The dataset is streamed, so it does not need to download the full dataset first.
+By default this keeps only autoevolution images and skips meshfleet-generated
+renders. Use --include-meshfleet if you intentionally want generated images too.
+
+Example:
+    python notebooks/download_hf_micro.py --target-count 800
+    python notebooks/prepare_raw_data.py --clear
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+from pathlib import Path
+
 from datasets import load_dataset
 
-# Configuration
+
 DATASET_NAME = "DamianBoborzi/car_images"
-OUTPUT_DIR = "../data/raw/MICRO"
-TARGET_COUNT = 1500
 
-# Keywords indicating a 'Micro' car
-KEYWORDS = [
-    "fiat 500", "smart", "fortwo", "forfour", "mini cooper", 
-    "twingo", "aygo", "peugeot 108", "citroen c1", "chevrolet spark", 
-    "hyundai i10", "kia picanto", "vw up", "volkswagen up", "toyota iq"
-]
+MICRO_PATTERN = re.compile(
+    r"(smart fortwo|smart forfour|fiat 500|fiat panda|mini cooper|geo metro|"
+    r"toyota iq|toyota aygo|chevrolet spark|hyundai i10|kia picanto|renault twingo|"
+    r"citroen c1|peugeot 108|volkswagen up|vw up|seat mii|skoda citigo)",
+    re.IGNORECASE,
+)
 
-def is_micro_car(text, filename):
-    text_lower = str(text).lower()
-    filename_lower = str(filename).lower()
-    
-    for kw in KEYWORDS:
-        if kw in text_lower or kw in filename_lower:
-            return True
-    return False
 
-def download_micro_dataset():
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    print(f"Connecting to HuggingFace to stream {DATASET_NAME}...")
-    
-    # We use streaming=True to avoid downloading the massive 15GB file!
-    streaming_data = load_dataset(DATASET_NAME, split="train", streaming=True)
-    
-    downloaded_count = 0
-    scanned_count = 0
-    
-    print(f"Scanning for Micro cars (Target: {TARGET_COUNT}). This might take a few minutes...")
-    
-    for item in streaming_data:
-        scanned_count += 1
-        
-        # Check if the text or filename contains our keywords
-        if is_micro_car(item.get("text", ""), item.get("original_filename", "")):
-            # The 'image' field is already a PIL Image object!
-            img = item["image"]
-            
-            # Save it
-            save_path = os.path.join(OUTPUT_DIR, f"micro_{downloaded_count:04d}.jpg")
-            
-            # Convert to RGB just in case there are transparent PNGs
-            if img.mode != "RGB":
-                img = img.convert("RGB")
-                
-            img.save(save_path, "JPEG", quality=95)
-            
-            downloaded_count += 1
-            if downloaded_count % 50 == 0:
-                print(f"  [{downloaded_count}/{TARGET_COUNT}] downloaded. (Scanned {scanned_count} total images)")
-                
-            if downloaded_count >= TARGET_COUNT:
-                print("Target count reached! Stopping stream.")
-                break
-                
-    print(f"\nDone! Successfully saved {downloaded_count} Micro cars to {OUTPUT_DIR}")
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Stream micro-car images from Hugging Face.")
+    parser.add_argument("--output-dir", default="data/HF_MICRO_car_images")
+    parser.add_argument("--target-count", type=int, default=800)
+    parser.add_argument("--split", default="train")
+    parser.add_argument(
+        "--include-meshfleet",
+        action="store_true",
+        help="Include generated meshfleet images. Default keeps real autoevolution images only.",
+    )
+    return parser.parse_args()
+
+
+def is_micro(item: dict) -> bool:
+    text = str(item.get("text", ""))
+    filename = str(item.get("original_filename", ""))
+    return bool(MICRO_PATTERN.search(text) or MICRO_PATTERN.search(filename))
+
+
+def main() -> None:
+    args = parse_args()
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    existing = len(list(output_dir.glob("hf_micro_*.jpg")))
+    saved = existing
+    scanned = 0
+
+    print(f"Streaming {DATASET_NAME}/{args.split}")
+    dataset = load_dataset(DATASET_NAME, split=args.split, streaming=True)
+
+    for item in dataset:
+        scanned += 1
+
+        if not args.include_meshfleet and str(item.get("source", "")).lower() == "meshfleet":
+            continue
+        if not is_micro(item):
+            continue
+
+        image = item["image"]
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+
+        output_path = output_dir / f"hf_micro_{saved:05d}.jpg"
+        image.save(output_path, "JPEG", quality=95)
+        saved += 1
+
+        if saved % 50 == 0:
+            print(f"Saved {saved}/{args.target_count} MICRO images after scanning {scanned} rows.")
+
+        if saved >= args.target_count:
+            break
+
+    print(f"Done. Saved {saved - existing} new images. Total hf_micro files: {saved}.")
+    if saved < args.target_count:
+        print("Target was not reached. Try --include-meshfleet or add another MICRO source.")
+
 
 if __name__ == "__main__":
-    download_micro_dataset()
+    main()
