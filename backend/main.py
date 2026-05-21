@@ -1,91 +1,121 @@
 """
-Phase 5: Backend API (Headless Gradio)
-======================================
-Serves the ONNX model via FastAPI with a direct upload endpoint.
-The Gradio Blocks app is also mounted for demonstration/compatibility,
-but the primary frontend uses the /api/predict endpoint via fetch().
+AutoVision backend API.
+
+The React frontend posts images to /api/predict. This backend loads the latest
+ResNet50 PyTorch checkpoint and returns class probabilities.
 
 Usage:
     cd backend
     python main.py
 """
 
-import os
+from __future__ import annotations
+
 import io
-import numpy as np
-from PIL import Image
-import onnxruntime as ort
+import os
+from pathlib import Path
+
 import gradio as gr
-from fastapi import FastAPI, UploadFile, File
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+import torch
+from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from PIL import Image
+from torchvision import transforms
+from torchvision.models import resnet50
+from torchvision.transforms import InterpolationMode
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_MODEL_PATH = PROJECT_ROOT / "notebooks" / "outputs" / "resnet50_clean_hatchback_suv" / "best_resnet50.pt"
+MODEL_PATH = Path(os.environ.get("AUTOVISION_MODEL_PATH", DEFAULT_MODEL_PATH)).resolve()
 
 CLASSES = ["F1", "HATCHBACK", "MICRO", "PICK_UP", "SEDAN", "STATION_WAGON", "SUV", "VAN"]
+IMAGENET_MEAN = [0.485, 0.456, 0.406]
+IMAGENET_STD = [0.229, 0.224, 0.225]
 
-# Load ONNX model. The previous dynamic INT8 FastViT export severely degraded
-# accuracy, so the backend intentionally serves the FP32 model.
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "model", "model_fp32.onnx")
-if os.path.exists(MODEL_PATH):
-    session = ort.InferenceSession(MODEL_PATH)
-    input_name = session.get_inputs()[0].name
-    print(f"ONNX model loaded from {MODEL_PATH}")
-else:
-    print(f"Warning: ONNX model not found at {MODEL_PATH}")
-    session = None
-    input_name = None
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model: torch.nn.Module | None = None
+class_names = CLASSES
+image_size = 224
+
+
+def load_checkpoint(path: Path) -> dict:
+    try:
+        return torch.load(path, map_location=device, weights_only=False)
+    except TypeError:
+        return torch.load(path, map_location=device)
+
+
+def build_resnet50(num_classes: int, dropout: float) -> torch.nn.Module:
+    network = resnet50(weights=None)
+    in_features = network.fc.in_features
+    network.fc = torch.nn.Sequential(torch.nn.Dropout(p=dropout), torch.nn.Linear(in_features, num_classes))
+    return network
+
+
+def load_model() -> None:
+    global model, class_names, image_size
+
+    if not MODEL_PATH.exists():
+        print(f"Warning: model checkpoint not found at {MODEL_PATH}")
+        return
+
+    checkpoint = load_checkpoint(MODEL_PATH)
+    class_names = checkpoint.get("class_names", CLASSES)
+    image_size = int(checkpoint.get("image_size", 224))
+    checkpoint_args = checkpoint.get("args", {})
+    dropout = float(checkpoint_args.get("dropout", 0.35))
+
+    network = build_resnet50(num_classes=len(class_names), dropout=dropout)
+    network.load_state_dict(checkpoint["model_state_dict"])
+    network.to(device)
+    network.eval()
+    model = network
+    print(f"Loaded ResNet50 checkpoint: {MODEL_PATH}")
+    print(f"Inference device: {device}")
+
+
+def make_preprocess() -> transforms.Compose:
+    return transforms.Compose(
+        [
+            transforms.Resize((image_size, image_size), interpolation=InterpolationMode.BICUBIC),
+            transforms.ToTensor(),
+            transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+        ]
+    )
 
 
 def run_inference(img: Image.Image) -> dict:
-    """Run ONNX inference on a PIL Image. Returns class→probability dict."""
-    if not session:
-        return {"error": "Model not loaded on server."}
+    if model is None:
+        return {"error": f"Model not loaded. Expected checkpoint at {MODEL_PATH}"}
 
-    img = img.convert("RGB").resize((224, 224))
+    image_tensor = make_preprocess()(img.convert("RGB")).unsqueeze(0).to(device)
+    with torch.no_grad():
+        logits = model(image_tensor)[0]
+        probabilities = torch.softmax(logits, dim=0).detach().cpu().tolist()
 
-    # Normalize
-    img_arr = np.array(img).astype(np.float32) / 255.0
-    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-    std  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-    img_arr = (img_arr - mean) / std
-
-    # HWC → CHW, add batch dim
-    img_arr = np.transpose(img_arr, (2, 0, 1))
-    img_arr = np.expand_dims(img_arr, axis=0)
-
-    # Inference
-    logits = session.run(None, {input_name: img_arr})[0][0]
-
-    # Softmax
-    exp_logits = np.exp(logits - np.max(logits))
-    probs = exp_logits / np.sum(exp_logits)
-
-    return {CLASSES[i]: float(probs[i]) for i in range(len(CLASSES))}
+    return {class_names[index]: float(probabilities[index]) for index in range(len(class_names))}
 
 
-# Gradio wrapper (accepts filepath from Gradio component)
 def predict_gradio(image_path):
     try:
         img = Image.open(image_path)
         return run_inference(img)
-    except Exception as e:
-        return {"error": str(e)}
+    except Exception as exc:
+        return {"error": str(exc)}
 
 
-# ---------------------------------------------------------
-# Gradio Blocks (headless – no UI, only API)
-# ---------------------------------------------------------
+load_model()
+
 with gr.Blocks() as blocks:
     image_input = gr.Image(type="filepath", visible=False)
     label_output = gr.JSON(visible=False)
     btn = gr.Button(visible=False)
-    btn.click(fn=predict_gradio, inputs=image_input, outputs=label_output,
-              api_name="predict_body_type")
+    btn.click(fn=predict_gradio, inputs=image_input, outputs=label_output, api_name="predict_body_type")
 
 
-# ---------------------------------------------------------
-# FastAPI application
-# ---------------------------------------------------------
 app = FastAPI(title="AutoVision API")
 
 app.add_middleware(
@@ -97,10 +127,8 @@ app.add_middleware(
 )
 
 
-# ── Direct REST endpoint (used by the React frontend) ────
 @app.post("/api/predict")
 async def predict_endpoint(file: UploadFile = File(...)):
-    """Accept an uploaded image and return class probabilities."""
     try:
         contents = await file.read()
         img = Image.open(io.BytesIO(contents))
@@ -108,32 +136,29 @@ async def predict_endpoint(file: UploadFile = File(...)):
         if "error" in result:
             return JSONResponse(content=result, status_code=500)
         return JSONResponse(content={"predictions": result})
-    except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=500)
+    except Exception as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=500)
 
 
-# ── Mount Gradio at /gradio (kept for compatibility) ──────
 app = gr.mount_gradio_app(app, blocks, path="/gradio")
 
+frontend_dist = PROJECT_ROOT / "frontend" / "dist"
+assets_path = frontend_dist / "assets"
 
-# ---------------------------------------------------------
-# Unified Routing for production frontend
-# ---------------------------------------------------------
-frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
-assets_path = os.path.join(frontend_dist, "assets")
-
-if os.path.exists(assets_path):
+if assets_path.exists():
     app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
+
 
 @app.get("/{full_path:path}")
 def serve_index(full_path: str):
-    index_path = os.path.join(frontend_dist, "index.html")
-    if os.path.exists(index_path):
+    index_path = frontend_dist / "index.html"
+    if index_path.exists():
         return FileResponse(index_path)
     return {"message": "AutoVision API is running. Frontend not built yet."}
 
 
 if __name__ == "__main__":
     import uvicorn
+
     print("Starting AutoVision API on http://localhost:7860")
     uvicorn.run("main:app", host="0.0.0.0", port=7860, reload=True)

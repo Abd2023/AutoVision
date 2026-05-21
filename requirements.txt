@@ -5,3 +5,5 @@ gradio
 python-multipart
 Pillow
 numpy
+torch
+torchvision
