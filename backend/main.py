@@ -28,7 +28,7 @@ from torchvision.transforms import InterpolationMode
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MODEL_PATH = PROJECT_ROOT / "notebooks" / "outputs" / "resnet50_clean_hatchback_suv" / "best_resnet50.pt"
+DEFAULT_MODEL_PATH = PROJECT_ROOT / "notebooks" / "outputs" / "resnet50_clean_round2" / "best_resnet50.pt"
 MODEL_PATH = Path(os.environ.get("AUTOVISION_MODEL_PATH", DEFAULT_MODEL_PATH)).resolve()
 
 CLASSES = ["F1", "HATCHBACK", "MICRO", "PICK_UP", "SEDAN", "STATION_WAGON", "SUV", "VAN"]
