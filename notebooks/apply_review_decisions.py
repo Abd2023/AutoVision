@@ -4,9 +4,9 @@ Apply reviewed data-cleaning decisions.
 This script reads data/review/raw/review_candidates.csv and moves files instead
 of deleting them:
     - REMOVE -> data/quarantine/raw/<class>/
-    - MOVE   -> data/raw/<target_class>/
+    - MOVE   -> <dataset-root>/<target_class>/
 
-Rows with REVIEW or KEEP are ignored. Use --dry-run first.
+Rows with REVIEW, KEEP, or AMBIGUOUS are ignored. Use --dry-run first.
 """
 
 from __future__ import annotations
@@ -28,10 +28,27 @@ PROJECT_CLASSES = {
     "VAN",
 }
 
+NON_MUTATING_DECISIONS = {"", "KEEP", "AMBIGUOUS"}
+CLASS_ALIASES = {
+    "F1": "F1",
+    "HATCHBACK": "HATCHBACK",
+    "MICRO": "MICRO",
+    "PICKUP": "PICK_UP",
+    "PICK_UP": "PICK_UP",
+    "PICK UP": "PICK_UP",
+    "SEDAN": "SEDAN",
+    "STATIONWAGON": "STATION_WAGON",
+    "STATION_WAGON": "STATION_WAGON",
+    "STATION WAGON": "STATION_WAGON",
+    "SUV": "SUV",
+    "VAN": "VAN",
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Apply AutoVision raw data review decisions.")
     parser.add_argument("--review-csv", default="data/review/raw/review_candidates.csv")
+    parser.add_argument("--dataset-root", default="data/raw", help="Root class-folder dataset to mutate when applying MOVE.")
     parser.add_argument("--quarantine-root", default="data/quarantine/raw")
     parser.add_argument("--dry-run", action="store_true", help="Print operations without moving files.")
     parser.add_argument("--quiet", action="store_true", help="Do not print every file move.")
@@ -71,9 +88,22 @@ def move_file(source: Path, destination: Path, dry_run: bool, quiet: bool) -> No
     shutil.move(str(source), str(destination))
 
 
+def normalize_target_class(value: str) -> str:
+    normalized = value.strip().upper().replace("-", "_")
+    normalized = " ".join(normalized.split())
+    lookup_key = normalized.replace("_", " ")
+    if normalized in CLASS_ALIASES:
+        return CLASS_ALIASES[normalized]
+    if lookup_key in CLASS_ALIASES:
+        return CLASS_ALIASES[lookup_key]
+    compact_key = lookup_key.replace(" ", "")
+    return CLASS_ALIASES.get(compact_key, normalized)
+
+
 def main() -> None:
     args = parse_args()
     rows = read_rows(Path(args.review_csv))
+    dataset_root = Path(args.dataset_root)
     quarantine_root = Path(args.quarantine_root)
 
     applied = 0
@@ -84,12 +114,12 @@ def main() -> None:
         decision = row.get("decision", "").strip().upper()
         source = Path(row.get("path", ""))
         class_name = row.get("class_name", "").strip()
-        target_class = row.get("target_class", "").strip()
+        target_class = normalize_target_class(row.get("target_class", ""))
 
-        if decision in {"", "KEEP"}:
+        if decision in NON_MUTATING_DECISIONS:
             skipped += 1
             continue
-        if decision == "REVIEW" and not args.apply_review:
+        if decision == "REVIEW":
             skipped += 1
             continue
         if not source.exists():
@@ -104,7 +134,7 @@ def main() -> None:
         elif decision == "MOVE":
             if target_class not in PROJECT_CLASSES:
                 raise ValueError(f"Invalid target_class for {source}: {target_class!r}")
-            destination = unique_destination(Path("data/raw") / target_class, source.name)
+            destination = unique_destination(dataset_root / target_class, source.name)
             move_file(source, destination, args.dry_run, args.quiet)
             applied += 1
         else:

@@ -1,5 +1,5 @@
 """
-Train a ResNet50 body-type classifier on the frozen AutoVision dataset.
+Train an ImageNet-pretrained body-type classifier on the frozen AutoVision dataset.
 
 Expected dataset layout:
     data/processed/train/<CLASS>/*.jpg
@@ -7,11 +7,11 @@ Expected dataset layout:
     data/processed/test/<CLASS>/*.jpg
 
 Default training choices are tuned for the current project constraints:
-    - ImageNet-pretrained ResNet50 transfer learning
+    - ImageNet-pretrained transfer learning
     - frozen-backbone warmup, then full fine-tuning
     - WeightedRandomSampler for imbalanced classes
     - class-weighted CrossEntropyLoss
-    - strong but car-safe augmentation
+    - strong augmentation to reduce synthetic-domain overfitting
     - best checkpoint selected by validation balanced accuracy
 """
 
@@ -34,13 +34,21 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import torch.nn.functional as F
 from sklearn.metrics import classification_report, confusion_matrix
 from torch import nn
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, Subset, WeightedRandomSampler
 from torchvision import datasets, transforms
-from torchvision.models import ResNet50_Weights, resnet50
+from torchvision.models import (
+    EfficientNet_B0_Weights,
+    EfficientNet_B1_Weights,
+    ResNet50_Weights,
+    efficientnet_b0,
+    efficientnet_b1,
+    resnet50,
+)
 from torchvision.transforms import InterpolationMode
 
 
@@ -57,6 +65,7 @@ PROJECT_CLASSES = [
 ]
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
+TORCHVISION_MODELS = {"resnet50", "efficientnet_b0", "efficientnet_b1"}
 
 
 @dataclass
@@ -72,11 +81,30 @@ class EpochMetrics:
     seconds: float
 
 
+class FocalLoss(nn.Module):
+    def __init__(self, gamma: float = 2.0, weight: torch.Tensor | None = None) -> None:
+        super().__init__()
+        self.gamma = gamma
+        self.register_buffer("weight", weight if weight is not None else None)
+
+    def forward(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        ce_loss = F.cross_entropy(logits, labels, reduction="none", weight=self.weight)
+        pt = torch.softmax(logits, dim=1).gather(1, labels.unsqueeze(1)).squeeze(1).clamp(min=1e-8, max=1.0)
+        focal_weight = (1.0 - pt) ** self.gamma
+        return (focal_weight * ce_loss).mean()
+
+
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train AutoVision ResNet50 classifier.")
+    parser = argparse.ArgumentParser(description="Train AutoVision classifier.")
     parser.add_argument("--data-root", default="data/processed", help="Frozen train/val/test dataset root.")
     parser.add_argument("--output-dir", default="notebooks/outputs/resnet50", help="Where checkpoints and metrics are saved.")
     parser.add_argument("--model-source", choices=["torchvision", "timm"], default="torchvision")
+    parser.add_argument(
+        "--model-name",
+        choices=sorted(TORCHVISION_MODELS),
+        default="resnet50",
+        help="Backbone architecture to fine-tune.",
+    )
     parser.add_argument("--image-size", type=int, default=224)
     parser.add_argument("--epochs", type=int, default=25)
     parser.add_argument("--freeze-epochs", type=int, default=3, help="Train only the classifier head for this many epochs.")
@@ -87,6 +115,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-lr", type=float, default=1e-6)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--dropout", type=float, default=0.35)
+    parser.add_argument("--loss-type", choices=["cross_entropy", "focal"], default="cross_entropy")
+    parser.add_argument("--focal-gamma", type=float, default=2.0)
     parser.add_argument("--label-smoothing", type=float, default=0.05)
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--patience", type=int, default=8, help="Early-stop patience on validation balanced accuracy. Use 0 to disable.")
@@ -130,28 +160,30 @@ def build_transforms(image_size: int) -> tuple[transforms.Compose, transforms.Co
         [
             transforms.RandomResizedCrop(
                 image_size,
-                scale=(0.70, 1.0),
-                ratio=(0.80, 1.25),
+                scale=(0.60, 1.0),
+                ratio=(0.75, 1.33),
                 interpolation=InterpolationMode.BICUBIC,
             ),
             transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomRotation(degrees=12, interpolation=InterpolationMode.BILINEAR, fill=255),
             transforms.RandomApply(
-                [transforms.ColorJitter(brightness=0.35, contrast=0.35, saturation=0.25, hue=0.06)],
-                p=0.80,
+                [transforms.ColorJitter(brightness=0.45, contrast=0.45, saturation=0.30, hue=0.08)],
+                p=0.90,
             ),
             transforms.RandomGrayscale(p=0.03),
             transforms.RandomApply([transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 1.5))], p=0.12),
+            transforms.RandomPerspective(distortion_scale=0.15, p=0.20, interpolation=InterpolationMode.BILINEAR, fill=255),
             transforms.RandomAffine(
-                degrees=8,
-                translate=(0.04, 0.04),
-                scale=(0.92, 1.08),
-                shear=4,
+                degrees=0,
+                translate=(0.05, 0.05),
+                scale=(0.90, 1.10),
+                shear=6,
                 interpolation=InterpolationMode.BILINEAR,
                 fill=255,
             ),
             transforms.ToTensor(),
             transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
-            transforms.RandomErasing(p=0.20, scale=(0.02, 0.12), ratio=(0.3, 3.3), value="random"),
+            transforms.RandomErasing(p=0.35, scale=(0.02, 0.18), ratio=(0.3, 3.3), value="random"),
         ]
     )
 
@@ -291,22 +323,47 @@ def build_model(args: argparse.Namespace, num_classes: int) -> nn.Module:
         except ImportError as exc:
             raise RuntimeError("timm is not installed. Install requirements-train.txt or use --model-source torchvision.") from exc
         return timm.create_model(
-            "resnet50",
+            args.model_name,
             pretrained=args.pretrained,
             num_classes=num_classes,
             drop_rate=args.dropout,
         )
 
-    weights = ResNet50_Weights.DEFAULT if args.pretrained else None
-    model = resnet50(weights=weights)
-    in_features = model.fc.in_features
-    model.fc = nn.Sequential(nn.Dropout(p=args.dropout), nn.Linear(in_features, num_classes))
-    return model
+    if args.model_name == "resnet50":
+        weights = ResNet50_Weights.DEFAULT if args.pretrained else None
+        model = resnet50(weights=weights)
+        in_features = model.fc.in_features
+        model.fc = nn.Sequential(nn.Dropout(p=args.dropout), nn.Linear(in_features, num_classes))
+        return model
+
+    if args.model_name == "efficientnet_b0":
+        weights = EfficientNet_B0_Weights.DEFAULT if args.pretrained else None
+        model = efficientnet_b0(weights=weights)
+        in_features = model.classifier[-1].in_features
+        model.classifier = nn.Sequential(
+            nn.Dropout(p=args.dropout),
+            nn.Linear(in_features, num_classes),
+        )
+        return model
+
+    if args.model_name == "efficientnet_b1":
+        weights = EfficientNet_B1_Weights.DEFAULT if args.pretrained else None
+        model = efficientnet_b1(weights=weights)
+        in_features = model.classifier[-1].in_features
+        model.classifier = nn.Sequential(
+            nn.Dropout(p=args.dropout),
+            nn.Linear(in_features, num_classes),
+        )
+        return model
+
+    raise ValueError(f"Unsupported torchvision model_name: {args.model_name}")
 
 
 def classifier_head(model: nn.Module) -> nn.Module:
     if hasattr(model, "fc") and isinstance(model.fc, nn.Module):
         return model.fc
+    if hasattr(model, "classifier") and isinstance(model.classifier, nn.Module):
+        return model.classifier
     if hasattr(model, "get_classifier"):
         head = model.get_classifier()
         if isinstance(head, nn.Module):
@@ -348,16 +405,19 @@ def make_optimizer(model: nn.Module, args: argparse.Namespace, freeze_backbone: 
     return AdamW(param_groups, weight_decay=args.weight_decay)
 
 
-def make_loss(train_counts: list[int], args: argparse.Namespace, device: torch.device) -> nn.CrossEntropyLoss:
-    if not args.class_weighted_loss:
-        return nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
-
+def build_class_weights(train_counts: list[int]) -> torch.Tensor:
     total = float(sum(train_counts))
     num_classes = len(train_counts)
     raw_weights = [total / (num_classes * max(count, 1)) for count in train_counts]
     weights = torch.tensor(raw_weights, dtype=torch.float32)
-    weights = weights / weights.mean()
-    return nn.CrossEntropyLoss(weight=weights.to(device), label_smoothing=args.label_smoothing)
+    return weights / weights.mean()
+
+
+def make_loss(train_counts: list[int], args: argparse.Namespace, device: torch.device) -> nn.Module:
+    weights = build_class_weights(train_counts).to(device) if args.class_weighted_loss else None
+    if args.loss_type == "focal":
+        return FocalLoss(gamma=args.focal_gamma, weight=weights)
+    return nn.CrossEntropyLoss(weight=weights, label_smoothing=args.label_smoothing)
 
 
 def make_grad_scaler(use_amp: bool) -> Any:
@@ -515,7 +575,7 @@ def save_checkpoint(
         "epoch": epoch,
         "phase": phase,
         "model_source": args.model_source,
-        "model_name": "resnet50",
+        "model_name": args.model_name,
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "scheduler_state_dict": scheduler.state_dict(),
@@ -701,8 +761,8 @@ def main() -> None:
 
     use_amp = bool(args.amp and device.type == "cuda")
     scaler = make_grad_scaler(use_amp)
-    best_path = output_dir / "best_resnet50.pt"
-    last_path = output_dir / "last_resnet50.pt"
+    best_path = output_dir / f"best_{args.model_name}.pt"
+    last_path = output_dir / f"last_{args.model_name}.pt"
     history_path = output_dir / "training_history.csv"
 
     history: list[EpochMetrics] = []

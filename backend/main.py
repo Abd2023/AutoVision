@@ -21,14 +21,13 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from PIL import Image
+from PIL import Image, ImageOps
 from torchvision import transforms
 from torchvision.models import resnet50
-from torchvision.transforms import InterpolationMode
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MODEL_PATH = PROJECT_ROOT / "notebooks" / "outputs" / "resnet50_clean_round2" / "best_resnet50.pt"
+DEFAULT_MODEL_PATH = PROJECT_ROOT / "notebooks" / "outputs" / "resnet50_focal_round4" / "best_resnet50.pt"
 MODEL_PATH = Path(os.environ.get("AUTOVISION_MODEL_PATH", DEFAULT_MODEL_PATH)).resolve()
 
 CLASSES = ["F1", "HATCHBACK", "MICRO", "PICK_UP", "SEDAN", "STATION_WAGON", "SUV", "VAN"]
@@ -80,18 +79,28 @@ def load_model() -> None:
 def make_preprocess() -> transforms.Compose:
     return transforms.Compose(
         [
-            transforms.Resize((image_size, image_size), interpolation=InterpolationMode.BICUBIC),
+            transforms.Lambda(lambda image: letterbox_image(image, image_size)),
             transforms.ToTensor(),
             transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
         ]
     )
 
 
+def letterbox_image(image: Image.Image, size: int, background: str = "white") -> Image.Image:
+    image = ImageOps.exif_transpose(image).convert("RGB")
+    image.thumbnail((size, size), Image.Resampling.LANCZOS)
+    canvas = Image.new("RGB", (size, size), background)
+    x = (size - image.width) // 2
+    y = (size - image.height) // 2
+    canvas.paste(image, (x, y))
+    return canvas
+
+
 def run_inference(img: Image.Image) -> dict:
     if model is None:
         return {"error": f"Model not loaded. Expected checkpoint at {MODEL_PATH}"}
 
-    image_tensor = make_preprocess()(img.convert("RGB")).unsqueeze(0).to(device)
+    image_tensor = make_preprocess()(img).unsqueeze(0).to(device)
     with torch.no_grad():
         logits = model(image_tensor)[0]
         probabilities = torch.softmax(logits, dim=0).detach().cpu().tolist()

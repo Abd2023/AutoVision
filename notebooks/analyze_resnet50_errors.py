@@ -1,5 +1,5 @@
 """
-Generate per-image error analysis for an AutoVision ResNet50 checkpoint.
+Generate per-image error analysis for an AutoVision checkpoint.
 
 Outputs:
     predictions_<split>.csv
@@ -86,6 +86,7 @@ def load_model(checkpoint_path: Path, device: torch.device) -> tuple[torch.nn.Mo
     checkpoint_args = checkpoint.get("args", {})
     model_args = SimpleNamespace(
         model_source=checkpoint.get("model_source", checkpoint_args.get("model_source", "torchvision")),
+        model_name=checkpoint.get("model_name", checkpoint_args.get("model_name", "resnet50")),
         pretrained=False,
         dropout=float(checkpoint_args.get("dropout", 0.35)),
     )
