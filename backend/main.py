@@ -23,11 +23,11 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
 from torchvision import transforms
-from torchvision.models import efficientnet_b0, efficientnet_b1, resnet50
+from torchvision.models import convnext_tiny, efficientnet_b0, efficientnet_b1, resnet50
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MODEL_PATH = PROJECT_ROOT / "notebooks" / "outputs" / "efficientnet_b0_clean_round1" / "best_efficientnet_b0.pt"
+DEFAULT_MODEL_PATH = PROJECT_ROOT / "notebooks" / "outputs" / "convnext_tiny_highres_320_v1" / "best_convnext_tiny.pt"
 MODEL_PATH = Path(os.environ.get("AUTOVISION_MODEL_PATH", DEFAULT_MODEL_PATH)).resolve()
 
 CLASSES = ["F1", "HATCHBACK", "MICRO", "PICK_UP", "SEDAN", "STATION_WAGON", "SUV", "VAN"]
@@ -67,6 +67,18 @@ def build_model(model_name: str, num_classes: int, dropout: float) -> torch.nn.M
         network = efficientnet_b1(weights=None)
         in_features = network.classifier[-1].in_features
         network.classifier = torch.nn.Sequential(
+            torch.nn.Dropout(p=dropout, inplace=False),
+            torch.nn.Linear(in_features, num_classes),
+        )
+        return network
+
+    if model_name == "convnext_tiny":
+        network = convnext_tiny(weights=None)
+        norm_layer = network.classifier[0]
+        in_features = network.classifier[-1].in_features
+        network.classifier = torch.nn.Sequential(
+            norm_layer,
+            torch.nn.Flatten(start_dim=1),
             torch.nn.Dropout(p=dropout, inplace=False),
             torch.nn.Linear(in_features, num_classes),
         )

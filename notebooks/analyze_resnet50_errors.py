@@ -61,7 +61,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
-    parser.add_argument("--tta", choices=["none", "hflip"], default="none")
     parser.add_argument("--pairs", nargs="*", default=DEFAULT_PAIRS, help="Pairs formatted as ACTUAL:PREDICTED.")
     parser.add_argument("--max-per-pair", type=int, default=80)
     parser.add_argument("--max-all-mistakes", type=int, default=240)
@@ -116,7 +115,6 @@ def predict_rows(
     batch_size: int,
     num_workers: int,
     device: torch.device,
-    tta: str,
 ) -> list[dict[str, Any]]:
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=device.type == "cuda")
     rows: list[dict[str, Any]] = []
@@ -124,11 +122,7 @@ def predict_rows(
     for images, labels, paths in loader:
         images = images.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
-        logits = model(images)
-        if tta == "hflip":
-            flipped_logits = model(torch.flip(images, dims=[3]))
-            logits = (logits + flipped_logits) / 2.0
-        probabilities = torch.softmax(logits, dim=1)
+        probabilities = torch.softmax(model(images), dim=1)
         top_probs, top_indices = torch.topk(probabilities, k=min(3, len(class_names)), dim=1)
 
         for batch_index in range(images.size(0)):
@@ -312,7 +306,7 @@ def main() -> None:
     model, checkpoint, class_names = load_model(checkpoint_path, device)
     image_size = int(checkpoint.get("image_size", 224))
     dataset = make_dataset(data_root, args.split, image_size, class_names)
-    rows = predict_rows(model, dataset, class_names, args.batch_size, args.num_workers, device, args.tta)
+    rows = predict_rows(model, dataset, class_names, args.batch_size, args.num_workers, device)
     mistakes = write_prediction_tables(output_dir, args.split, rows)
     write_contact_sheets(
         output_dir=output_dir,
