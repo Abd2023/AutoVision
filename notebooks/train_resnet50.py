@@ -42,9 +42,11 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, Subset, WeightedRandomSampler
 from torchvision import datasets, transforms
 from torchvision.models import (
+    ConvNeXt_Tiny_Weights,
     EfficientNet_B0_Weights,
     EfficientNet_B1_Weights,
     ResNet50_Weights,
+    convnext_tiny,
     efficientnet_b0,
     efficientnet_b1,
     resnet50,
@@ -65,7 +67,7 @@ PROJECT_CLASSES = [
 ]
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
-TORCHVISION_MODELS = {"resnet50", "efficientnet_b0", "efficientnet_b1"}
+TORCHVISION_MODELS = {"resnet50", "efficientnet_b0", "efficientnet_b1", "convnext_tiny"}
 
 
 @dataclass
@@ -106,6 +108,7 @@ def parse_args() -> argparse.Namespace:
         help="Backbone architecture to fine-tune.",
     )
     parser.add_argument("--image-size", type=int, default=224)
+    parser.add_argument("--aug-profile", choices=["moderate", "strong"], default="strong")
     parser.add_argument("--epochs", type=int, default=25)
     parser.add_argument("--freeze-epochs", type=int, default=3, help="Train only the classifier head for this many epochs.")
     parser.add_argument("--batch-size", type=int, default=32)
@@ -124,6 +127,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
     parser.add_argument("--pretrained", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True, help="Use CUDA mixed precision when available.")
+    parser.add_argument("--eval-tta", choices=["none", "hflip"], default="none", help="Apply test-time augmentation during validation/test evaluation.")
     parser.add_argument("--weighted-sampler", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--class-weighted-loss", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--limit-train", type=int, default=0, help="Debug only: balanced subset size for train.")
@@ -155,37 +159,71 @@ def choose_device(device_arg: str) -> torch.device:
     return torch.device(device_arg)
 
 
-def build_transforms(image_size: int) -> tuple[transforms.Compose, transforms.Compose]:
-    train_tfms = transforms.Compose(
-        [
-            transforms.RandomResizedCrop(
-                image_size,
-                scale=(0.60, 1.0),
-                ratio=(0.75, 1.33),
-                interpolation=InterpolationMode.BICUBIC,
-            ),
-            transforms.RandomHorizontalFlip(p=0.5),
-            transforms.RandomRotation(degrees=12, interpolation=InterpolationMode.BILINEAR, fill=255),
-            transforms.RandomApply(
-                [transforms.ColorJitter(brightness=0.45, contrast=0.45, saturation=0.30, hue=0.08)],
-                p=0.90,
-            ),
-            transforms.RandomGrayscale(p=0.03),
-            transforms.RandomApply([transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 1.5))], p=0.12),
-            transforms.RandomPerspective(distortion_scale=0.15, p=0.20, interpolation=InterpolationMode.BILINEAR, fill=255),
-            transforms.RandomAffine(
-                degrees=0,
-                translate=(0.05, 0.05),
-                scale=(0.90, 1.10),
-                shear=6,
-                interpolation=InterpolationMode.BILINEAR,
-                fill=255,
-            ),
-            transforms.ToTensor(),
-            transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
-            transforms.RandomErasing(p=0.35, scale=(0.02, 0.18), ratio=(0.3, 3.3), value="random"),
-        ]
-    )
+def build_transforms(image_size: int, aug_profile: str) -> tuple[transforms.Compose, transforms.Compose]:
+    if aug_profile == "moderate":
+        train_tfms = transforms.Compose(
+            [
+                transforms.RandomResizedCrop(
+                    image_size,
+                    scale=(0.72, 1.0),
+                    ratio=(0.85, 1.20),
+                    interpolation=InterpolationMode.BICUBIC,
+                ),
+                transforms.RandomHorizontalFlip(p=0.5),
+                transforms.RandomRotation(degrees=8, interpolation=InterpolationMode.BILINEAR, fill=255),
+                transforms.RandomApply(
+                    [transforms.ColorJitter(brightness=0.25, contrast=0.25, saturation=0.18, hue=0.04)],
+                    p=0.65,
+                ),
+                transforms.RandomApply(
+                    [
+                        transforms.RandomAffine(
+                            degrees=0,
+                            translate=(0.03, 0.03),
+                            scale=(0.95, 1.05),
+                            shear=3,
+                            interpolation=InterpolationMode.BILINEAR,
+                            fill=255,
+                        )
+                    ],
+                    p=0.18,
+                ),
+                transforms.ToTensor(),
+                transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+                transforms.RandomErasing(p=0.12, scale=(0.02, 0.10), ratio=(0.5, 2.0), value="random"),
+            ]
+        )
+    else:
+        train_tfms = transforms.Compose(
+            [
+                transforms.RandomResizedCrop(
+                    image_size,
+                    scale=(0.60, 1.0),
+                    ratio=(0.75, 1.33),
+                    interpolation=InterpolationMode.BICUBIC,
+                ),
+                transforms.RandomHorizontalFlip(p=0.5),
+                transforms.RandomRotation(degrees=12, interpolation=InterpolationMode.BILINEAR, fill=255),
+                transforms.RandomApply(
+                    [transforms.ColorJitter(brightness=0.45, contrast=0.45, saturation=0.30, hue=0.08)],
+                    p=0.90,
+                ),
+                transforms.RandomGrayscale(p=0.03),
+                transforms.RandomApply([transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 1.5))], p=0.12),
+                transforms.RandomPerspective(distortion_scale=0.15, p=0.20, interpolation=InterpolationMode.BILINEAR, fill=255),
+                transforms.RandomAffine(
+                    degrees=0,
+                    translate=(0.05, 0.05),
+                    scale=(0.90, 1.10),
+                    shear=6,
+                    interpolation=InterpolationMode.BILINEAR,
+                    fill=255,
+                ),
+                transforms.ToTensor(),
+                transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+                transforms.RandomErasing(p=0.35, scale=(0.02, 0.18), ratio=(0.3, 3.3), value="random"),
+            ]
+        )
 
     eval_tfms = transforms.Compose(
         [
@@ -245,7 +283,7 @@ def class_counts(dataset: datasets.ImageFolder | Subset, num_classes: int) -> li
 
 
 def create_datasets(data_root: Path, args: argparse.Namespace) -> tuple[datasets.ImageFolder | Subset, datasets.ImageFolder | Subset, datasets.ImageFolder | Subset, list[str]]:
-    train_tfms, eval_tfms = build_transforms(args.image_size)
+    train_tfms, eval_tfms = build_transforms(args.image_size, args.aug_profile)
     train_root = data_root / "train"
     val_root = data_root / "val"
     test_root = data_root / "test"
@@ -351,6 +389,19 @@ def build_model(args: argparse.Namespace, num_classes: int) -> nn.Module:
         model = efficientnet_b1(weights=weights)
         in_features = model.classifier[-1].in_features
         model.classifier = nn.Sequential(
+            nn.Dropout(p=args.dropout),
+            nn.Linear(in_features, num_classes),
+        )
+        return model
+
+    if args.model_name == "convnext_tiny":
+        weights = ConvNeXt_Tiny_Weights.DEFAULT if args.pretrained else None
+        model = convnext_tiny(weights=weights)
+        norm_layer = model.classifier[0]
+        in_features = model.classifier[-1].in_features
+        model.classifier = nn.Sequential(
+            norm_layer,
+            nn.Flatten(start_dim=1),
             nn.Dropout(p=args.dropout),
             nn.Linear(in_features, num_classes),
         )
@@ -501,6 +552,7 @@ def evaluate(
     loss_fn: nn.Module,
     device: torch.device,
     num_classes: int,
+    eval_tta: str = "none",
 ) -> dict[str, Any]:
     model.eval()
     total_loss = 0.0
@@ -513,6 +565,9 @@ def evaluate(
         images = images.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
         logits = model(images)
+        if eval_tta == "hflip":
+            flipped_logits = model(torch.flip(images, dims=[3]))
+            logits = (logits + flipped_logits) / 2.0
         loss = loss_fn(logits, labels)
         preds = logits.argmax(dim=1)
 
@@ -802,7 +857,7 @@ def main() -> None:
             grad_clip=args.grad_clip,
             freeze_backbone=freeze_backbone,
         )
-        val_metrics = evaluate(model, val_loader, loss_fn, device, len(class_names))
+        val_metrics = evaluate(model, val_loader, loss_fn, device, len(class_names), args.eval_tta)
         scheduler.step()
         seconds = time.time() - start
 
@@ -878,7 +933,7 @@ def main() -> None:
 
     checkpoint = load_checkpoint(best_path, device)
     model.load_state_dict(checkpoint["model_state_dict"])
-    test_metrics = evaluate(model, test_loader, loss_fn, device, len(class_names))
+    test_metrics = evaluate(model, test_loader, loss_fn, device, len(class_names), args.eval_tta)
     write_eval_artifacts(output_dir, "test", test_metrics, class_names)
 
     print("\nBest checkpoint:")
