@@ -47,7 +47,7 @@ class SourceRecord:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Freeze AutoVision raw data into processed splits.")
-    parser.add_argument("--raw-root", default="data/ai_raw_generated")
+    parser.add_argument("--raw-root", default="data/new_synthetic_car_dataset_all_data")
     parser.add_argument("--output-root", default="data/processed")
     parser.add_argument("--image-size", type=int, default=224)
     parser.add_argument("--seed", type=int, default=42)
@@ -237,7 +237,7 @@ def main() -> None:
 
     write_manifest(output_root, manifest_rows)
 
-    print("Selected from data/ai_raw_generated:")
+    print("Selected from data/new_synthetic_car_dataset_all_data:")
     for class_name in PROJECT_CLASSES:
         print(f"  {class_name:14s} {selected_counts[class_name]:5d}")
 

@@ -1,0 +1,44 @@
+# HAZIRLANACAK TAHMİN SCRIPTINDE UYGULANMASI VE DİKKAT EDİLMESİ GEREKEN ADIM VE KURALLAR
+
+# Yüklemeden önce ziplenecek klasörün ismi gruptaki öğrencilerin öğrenci numarası olmalıdır. Tek kişilik grup için klasör ismi: 220201XXX Çift kişilik grup için klasör ismi: 220201XXX_220201XXX
+# Klasörün içerisinde hazırladığınız düzenlerdiğiniz def Predict(file_path) fonksiyon ve kodlarınızın bulunduğu PredictionScript.txt dosyası ve bu dosyada çalıştıracağınız eğitilmiş modeliniz ve yöntemle ilgili dosyalar bulunmalıdır
+# Test verisi aşağıdaki hiyerarşik gösterime uygun biçimde testdata klasörünün içerisindeki her sınıf için ayrı alt klasörlerin içerisinde olacak şekilde hazırlanacaktır.
+#testdata/
+#│
+#├── 1/...
+#├── 2/...
+#└── 3/...
+#└── 4/...
+#└── 5/...
+#└── 6/...
+#└── 7/...
+#└── 8/...
+
+# Predict(file_path)--> file_path fonksiyon parametresi testdata klasörünün dosya yolunu parametre olarak alacaktır.
+# Kullanılacak kütüphaneler ve yükleme komut satırları buraya eklenmelidir "!pip ..., import..."
+# "Preds.txt" dosyasının içerik formatı aşağıdaki kod satırında belirtildiği gibi birebir aynı olmalı değiştirilmemeli ve sadece dosyanın uzantısıyla beraber ismi verilmeli dosya yolu verilmemeli
+# Preds.txt dosyası bu scriptin bulunduğu (Modelinizin ve script textinizin bulunduğu) dizine oluşturularak kaydedilmelidir.
+# Hazırladığınız bu kod Python 3 kullanılarak Colab ortamında çalışacak şekilde hazırlanmalıdır.
+# Hazırladığınız bu kodun bulunduğu script text PredictionScript.txt isimli bir text dosyasına kaydedilerek diğer model dosyalarınızla birlikte 220201XXX_220201XXX klasörüne eklenmelidir.
+# Hazırladığınız script istenen formata uygun biçimde edestekte paylaşılan Test.txt dosyasındaki script çalıştırılarak entegrasyonunuzun doğru olup olmadığı önceden test edilmeli sonradan telafi edilemeyecektir. 
+
+def Predict(file_path):
+
+    # file_path dosya yolundaki testdata klasöründeki dosyaların dosya isimleri ve tahmin sonuçları elde edilerek aşağıdaki formata uygun biçimde Preds.txt dosyasına kaydedilmelidir
+
+    image_names = []
+    preds = []
+    filename = f"/content/Preds.txt"
+    f = open(filename, "w", encoding="utf-8")
+
+    for i in range(len(preds)):
+
+        line = (
+            f"{image_names[i]} | Pred: {preds[i]} "  #Bu satırdaki format birebir aynı olmalı değiştirilmemeli ve sadece dosyanın uzantısıyla beraber ismi verilmeli dosya yolu verilmemeli
+        )
+
+        print(line)
+
+        f.write(line + "\n")
+
+    f.close()

@@ -1,0 +1,111 @@
+#Test.txt
+!pip install scikit-learn matplotlib seaborn
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+
+from sklearn.metrics import (
+    confusion_matrix,
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    classification_report
+)
+
+# ---------------------------------------------------
+# TXT dosyalarının okunması
+# ---------------------------------------------------
+def read_predictions(file_path):
+    data = {}
+
+    with open(file_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+
+            if not line:
+                continue
+
+            parts = line.split(" | ")
+
+            filename = parts[0]
+            value = int(parts[1].split(":")[1].strip())
+
+            data[filename] = value
+
+    return data
+
+# ---------------------------------------------------
+# Sonuçların Değerlendirilmesi
+# ---------------------------------------------------
+def evaluate_predictions(pred_txt, true_txt):
+
+    # Sınıf etiketleri
+    class_labels = [1, 2, 3, 4, 5, 6, 7, 8]
+
+    # 1. SUV
+    # 2. VAN
+    # 3. STATION WAGON
+    # 4. MİCRO
+    # 5. AÇIK TEKERLEKLİ (F1 ARAÇLARI)
+    # 6. SEDAN
+    # 7. HATCHBACK
+    # 8. PICK UP
+
+    # Dosyaları oku
+    pred_dict = read_predictions(pred_txt)
+    true_dict = read_predictions(true_txt)
+
+    # Ortak dosyaları bul
+    common_files = sorted(
+        set(pred_dict.keys()) & set(true_dict.keys())
+    )
+
+    y_true = []
+    y_pred = []
+
+    for file_name in common_files:
+        y_true.append(true_dict[file_name])
+        y_pred.append(pred_dict[file_name])
+
+    # ---------------------------------------------------
+    # Confusion Matrix
+    # ---------------------------------------------------
+    cm = confusion_matrix(
+        y_true,
+        y_pred,
+        labels=class_labels
+    )
+
+    print("Confusion Matrix:")
+    print(cm)
+
+    # ---------------------------------------------------
+    # Sınıflandırma Sonuçları
+    # ---------------------------------------------------
+    print("\nClassification Report:")
+
+    report = classification_report(
+                  y_true,
+                  y_pred,
+                  labels=class_labels,
+                  target_names=[str(c) for c in class_labels],
+                  zero_division=0,
+                  output_dict=True
+              )
+    print(report)
+
+    # Sonuçları döndür
+    return{
+        "classification_report": report
+    }
+
+
+# ---------------------------------------------------
+# Kullanım
+# ---------------------------------------------------
+results = evaluate_predictions(
+    "preds.txt",
+    "True.txt"
+)
