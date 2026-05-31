@@ -611,16 +611,26 @@ def write_history(path: Path, metrics: list[EpochMetrics]) -> None:
         writer.writerows(rows)
 
 
-def write_confusion_matrix(path: Path, matrix: np.ndarray, class_names: list[str]) -> None:
+def normalize_confusion_matrix(matrix: np.ndarray) -> np.ndarray:
+    matrix = np.asarray(matrix, dtype=float)
+    row_sums = matrix.sum(axis=1, keepdims=True)
+    return np.divide(matrix, row_sums, out=np.zeros_like(matrix, dtype=float), where=row_sums != 0)
+
+
+def write_confusion_matrix(path: Path, matrix: np.ndarray, class_names: list[str], decimals: int | None = None) -> None:
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow(["actual\\predicted", *class_names])
-        for class_name, row in zip(class_names, matrix.tolist()):
-            writer.writerow([class_name, *row])
+        for class_name, row in zip(class_names, matrix):
+            values = row.tolist()
+            if decimals is not None:
+                values = [f"{float(value):.{decimals}f}" for value in values]
+            writer.writerow([class_name, *values])
 
 
 def write_eval_artifacts(output_dir: Path, split_name: str, metrics: dict[str, Any], class_names: list[str]) -> None:
     matrix = metrics["confusion_matrix"]
+    normalized_matrix = normalize_confusion_matrix(matrix)
     per_class = {
         class_name: float(metrics["per_class_acc"][index])
         for index, class_name in enumerate(class_names)
@@ -632,7 +642,8 @@ def write_eval_artifacts(output_dir: Path, split_name: str, metrics: dict[str, A
         "per_class_accuracy": per_class,
     }
     (output_dir / f"{split_name}_metrics.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    write_confusion_matrix(output_dir / f"{split_name}_confusion_matrix.csv", matrix, class_names)
+    write_confusion_matrix(output_dir / f"{split_name}_confusion_matrix.csv", normalized_matrix, class_names, decimals=4)
+    write_confusion_matrix(output_dir / f"{split_name}_confusion_matrix_counts.csv", matrix, class_names)
     report = classification_report(
         metrics["labels"],
         metrics["preds"],
@@ -642,7 +653,8 @@ def write_eval_artifacts(output_dir: Path, split_name: str, metrics: dict[str, A
         zero_division=0,
     )
     (output_dir / f"{split_name}_classification_report.txt").write_text(report, encoding="utf-8")
-    plot_confusion_matrix(matrix, class_names, output_dir / f"{split_name}_confusion_matrix.png")
+    plot_confusion_matrix(normalized_matrix, class_names, output_dir / f"{split_name}_confusion_matrix.png", normalize=True)
+    plot_confusion_matrix(matrix, class_names, output_dir / f"{split_name}_confusion_matrix_counts.png", normalize=False)
 
 
 def plot_history(path: Path, metrics: list[EpochMetrics]) -> None:
@@ -677,7 +689,7 @@ def plot_history(path: Path, metrics: list[EpochMetrics]) -> None:
     plt.close(fig)
 
 
-def plot_confusion_matrix(matrix: np.ndarray, class_names: list[str], path: Path) -> None:
+def plot_confusion_matrix(matrix: np.ndarray, class_names: list[str], path: Path, normalize: bool) -> None:
     fig, ax = plt.subplots(figsize=(8, 7))
     im = ax.imshow(matrix, interpolation="nearest", cmap="Blues")
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
@@ -691,17 +703,20 @@ def plot_confusion_matrix(matrix: np.ndarray, class_names: list[str], path: Path
     threshold = matrix.max() / 2.0 if matrix.size and matrix.max() > 0 else 0.0
     for row in range(matrix.shape[0]):
         for col in range(matrix.shape[1]):
-            value = int(matrix[row, col])
+            raw_value = float(matrix[row, col])
+            value = f"{raw_value:.2f}" if normalize else str(int(raw_value))
             ax.text(
                 col,
                 row,
-                str(value),
+                value,
                 ha="center",
                 va="center",
-                color="white" if value > threshold else "black",
+                color="white" if raw_value > threshold else "black",
                 fontsize=8,
             )
 
+    title = "Normalized Confusion Matrix" if normalize else "Confusion Matrix (Counts)"
+    ax.set_title(title)
     fig.tight_layout()
     fig.savefig(path, dpi=180)
     plt.close(fig)

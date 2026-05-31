@@ -24,7 +24,7 @@ from analyze_resnet50_errors import (
     write_contact_sheets,
     write_prediction_tables,
 )
-from train_resnet50 import PROJECT_CLASSES, choose_device, load_checkpoint, project_path
+from train_resnet50 import PROJECT_CLASSES, choose_device, load_checkpoint, normalize_confusion_matrix, project_path
 
 
 def parse_args() -> argparse.Namespace:
@@ -113,13 +113,16 @@ def predict_rows(
     return rows
 
 
-def write_confusion_csv(path: Path, matrix: Any, class_names: list[str]) -> None:
+def write_confusion_csv(path: Path, matrix: Any, class_names: list[str], decimals: int | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow(["actual\\predicted", *class_names])
-        for class_name, row in zip(class_names, matrix.tolist()):
-            writer.writerow([class_name, *row])
+        for class_name, row in zip(class_names, matrix):
+            values = row.tolist()
+            if decimals is not None:
+                values = [f"{float(value):.{decimals}f}" for value in values]
+            writer.writerow([class_name, *values])
 
 
 def write_metric_reports(output_dir: Path, split: str, rows: list[dict[str, Any]], class_names: list[str]) -> None:
@@ -127,6 +130,7 @@ def write_metric_reports(output_dir: Path, split: str, rows: list[dict[str, Any]
     y_pred = [class_names.index(row["predicted_class"]) for row in rows]
     labels = list(range(len(class_names)))
     matrix = confusion_matrix(y_true, y_pred, labels=labels)
+    normalized_matrix = normalize_confusion_matrix(matrix)
     report_dict = classification_report(
         y_true,
         y_pred,
@@ -149,7 +153,8 @@ def write_metric_reports(output_dir: Path, split: str, rows: list[dict[str, Any]
     }
     (output_dir / f"{split}_metrics.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     (output_dir / f"{split}_classification_report.txt").write_text(report_text, encoding="utf-8")
-    write_confusion_csv(output_dir / f"{split}_confusion_matrix.csv", matrix, class_names)
+    write_confusion_csv(output_dir / f"{split}_confusion_matrix.csv", normalized_matrix, class_names, decimals=4)
+    write_confusion_csv(output_dir / f"{split}_confusion_matrix_counts.csv", matrix, class_names)
 
 
 def main() -> None:
