@@ -27,7 +27,7 @@ from torchvision.models import convnext_tiny, efficientnet_b0, efficientnet_b1, 
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MODEL_PATH = PROJECT_ROOT / "notebooks" / "outputs" / "convnext_tiny_highres_320_v1" / "best_convnext_tiny.pt"
+DEFAULT_MODEL_PATH = PROJECT_ROOT / "notebooks" / "outputs" / "efficientnet_b0_highres_320_v1" / "best_efficientnet_b0.pt"
 MODEL_PATH = Path(os.environ.get("AUTOVISION_MODEL_PATH", DEFAULT_MODEL_PATH)).resolve()
 
 CLASSES = ["F1", "HATCHBACK", "MICRO", "PICK_UP", "SEDAN", "STATION_WAGON", "SUV", "VAN"]
