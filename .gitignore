@@ -38,6 +38,11 @@ notebooks/outputs/
 *.pt
 *.pth
 *.ckpt
+!notebooks/outputs/efficientnet_b0_highres_320_v1/
+!notebooks/outputs/efficientnet_b0_highres_320_v1/best_efficientnet_b0.pt
+!notebooks/outputs/efficientnet_b0_highres_320_v1/run_config.json
+!notebooks/outputs/efficientnet_b0_highres_320_v1/test_metrics.json
+!notebooks/outputs/efficientnet_b0_highres_320_v1/test_classification_report.txt
 
 # Keep deployable ONNX models trackable, but ignore ad-hoc exports outside backend/model
 *.onnx

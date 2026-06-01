@@ -1,0 +1,84 @@
+{
+  "args": {
+    "data_root": "data/processed_convnext_tiny_320",
+    "output_dir": "notebooks/outputs/efficientnet_b0_highres_320_v1",
+    "model_source": "torchvision",
+    "model_name": "efficientnet_b0",
+    "image_size": 320,
+    "aug_profile": "moderate",
+    "epochs": 25,
+    "freeze_epochs": 2,
+    "batch_size": 16,
+    "num_workers": 0,
+    "lr": 0.0003,
+    "backbone_lr": 3e-05,
+    "min_lr": 1e-06,
+    "weight_decay": 0.0001,
+    "dropout": 0.3,
+    "loss_type": "cross_entropy",
+    "focal_gamma": 2.0,
+    "label_smoothing": 0.05,
+    "grad_clip": 1.0,
+    "patience": 8,
+    "seed": 42,
+    "device": "cuda",
+    "pretrained": true,
+    "amp": true,
+    "eval_tta": "hflip",
+    "weighted_sampler": true,
+    "class_weighted_loss": true,
+    "limit_train": 0,
+    "limit_val": 0,
+    "limit_test": 0
+  },
+  "class_names": [
+    "F1",
+    "HATCHBACK",
+    "MICRO",
+    "PICK_UP",
+    "SEDAN",
+    "STATION_WAGON",
+    "SUV",
+    "VAN"
+  ],
+  "train_counts": {
+    "F1": 4175,
+    "HATCHBACK": 4195,
+    "MICRO": 4010,
+    "PICK_UP": 3943,
+    "SEDAN": 4011,
+    "STATION_WAGON": 4091,
+    "SUV": 4162,
+    "VAN": 3904
+  },
+  "val_counts": {
+    "F1": 894,
+    "HATCHBACK": 899,
+    "MICRO": 859,
+    "PICK_UP": 845,
+    "SEDAN": 859,
+    "STATION_WAGON": 877,
+    "SUV": 892,
+    "VAN": 836
+  },
+  "test_counts": {
+    "F1": 894,
+    "HATCHBACK": 899,
+    "MICRO": 859,
+    "PICK_UP": 845,
+    "SEDAN": 859,
+    "STATION_WAGON": 877,
+    "SUV": 892,
+    "VAN": 836
+  },
+  "imagenet_mean": [
+    0.485,
+    0.456,
+    0.406
+  ],
+  "imagenet_std": [
+    0.229,
+    0.224,
+    0.225
+  ]
+}

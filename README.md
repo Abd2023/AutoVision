@@ -7,6 +7,7 @@ AutoVision is a deep learning project for classifying car body types from images
 - Test accuracy: `96.47%`
 - Balanced accuracy: `96.50%`
 - Macro F1-score: `96.48%`
+- Included model checkpoint: `notebooks/outputs/efficientnet_b0_highres_320_v1/best_efficientnet_b0.pt`
 - Dataset: [46K Car Body Type Image Dataset (8 Classes)](https://www.kaggle.com/datasets/denizedenize/46k-car-body-type-image-dataset-8-classes)
 - Detailed report: [210201142.pdf](./210201142.pdf)
 
@@ -86,6 +87,13 @@ docs/images/    README visuals
 210201142.pdf   project report
 ```
 
+The repository also includes the final trained EfficientNet-B0 checkpoint and its main evaluation metadata:
+
+- `notebooks/outputs/efficientnet_b0_highres_320_v1/best_efficientnet_b0.pt`
+- `notebooks/outputs/efficientnet_b0_highres_320_v1/run_config.json`
+- `notebooks/outputs/efficientnet_b0_highres_320_v1/test_metrics.json`
+- `notebooks/outputs/efficientnet_b0_highres_320_v1/test_classification_report.txt`
+
 ## How To Run
 
 ### 1. Install backend dependencies
@@ -116,6 +124,8 @@ By default, the backend expects the checkpoint at:
 ```text
 notebooks/outputs/efficientnet_b0_highres_320_v1/best_efficientnet_b0.pt
 ```
+
+This checkpoint is included in the repository, so the project can be run without retraining.
 
 You can also point to a different checkpoint with:
 
